@@ -9,14 +9,14 @@ from tensorflow.keras.preprocessing import image as keras_image
 # 모델 서버 URL 설정 
 model_server_urls = {
     'Xavier': {
-        'MobileNetV1': 'http://xavier_ip:8501/v1/models/mobilenet_v1:predict',
-        'MobileNetV2': 'http://xavier_ip:8501/v1/models/mobilenet_v2:predict',
-        'InceptionV3': 'http://xavier_ip:8501/v1/models/inception_v3:predict'
+        'MobileNetV1': 'http://xavier-ip:8501/v1/models/mobilenet_v1:predict',
+        'MobileNetV2': 'http://xavier-ip:8501/v1/models/mobilenet_v2:predict',
+        'InceptionV3': 'http://xavier-ip:8501/v1/models/inception_v3:predict'
     },
     'Nano': {
-        'MobileNetV1': 'http://nano_ip:8501/v1/models/mobilenet_v1:predict',
-        'MobileNetV2': 'http://nano_ip:8501/v1/models/mobilenet_v2:predict',
-        'InceptionV3': 'http://nano_ip:8501/v1/models/inception_v3:predict'
+        'MobileNetV1': 'http://nano-ip:8501/v1/models/mobilenet_v1:predict',
+        'MobileNetV2': 'http://nano-ip:8501/v1/models/mobilenet_v2:predict',
+        'InceptionV3': 'http://nano-ip:8501/v1/models/inception_v3:predict'
     }
 }
 
@@ -60,7 +60,6 @@ def measure_performance(model_server_url, image):
     # 리소스 사용량 측정
     cpu_usage = psutil.cpu_percent()
     memory_info = psutil.virtual_memory()
-    #gpu_usage = get_gpu_usage()
     
     # 성능 데이터 반환
     return {
@@ -68,23 +67,7 @@ def measure_performance(model_server_url, image):
         'predictions': predictions,
         'cpu_usage': cpu_usage,
         'memory_usage': memory_info.percent,
-    #    'gpu_usage': gpu_usage
     }
-
-# GPU 사용량 측정 함수
-def get_gpu_usage():
-    try:
-        # tegrastats 명령어 실행
-        result = os.popen("tegrastats | tail -n 1").read()
-        # 결과에서 GPU 사용량 추출
-        for line in result.split():
-            if 'GR3D' in line: 
-                gpu_usage = line.split('%')[0].strip()
-                return int(gpu_usage)
-    except Exception as e:
-        gpu_usage = None
-        print(f"Error retrieving GPU usage: {e}")
-    return gpu_usage
 
 # RR 알고리즘에 따른 작업 분배
 def round_robin(tasks, device):
@@ -98,6 +81,10 @@ def round_robin(tasks, device):
         # 성능 측정
         result = measure_performance(model_server_urls[device][model_name], image)
         results.append((model_name, result))
+        
+        # 1초 대기
+        time.sleep(1)
+        
     return results
 
 # 10개의 작업을 설정
@@ -116,7 +103,6 @@ for i, (model_name, result) in enumerate(results_xavier):
     print(f"  Inference Time: {result['inference_time']:.4f} seconds")
     print(f"  CPU Usage: {result['cpu_usage']}%")
     print(f"  Memory Usage: {result['memory_usage']}%")
-#    print(f"  GPU Usage: {result['gpu_usage']}%")
 
 # Nano 장비에서 RR 알고리즘을 사용하여 작업 수행
 print("\nProcessing on Nano:")
@@ -128,4 +114,3 @@ for i, (model_name, result) in enumerate(results_nano):
     print(f"  Inference Time: {result['inference_time']:.4f} seconds")
     print(f"  CPU Usage: {result['cpu_usage']}%")
     print(f"  Memory Usage: {result['memory_usage']}%")
-#    print(f"  GPU Usage: {result['gpu_usage']}%")
