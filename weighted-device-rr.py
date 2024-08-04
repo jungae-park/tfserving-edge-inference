@@ -9,14 +9,14 @@ from tensorflow.keras.preprocessing import image as keras_image
 # 모델 서버 URL 설정 
 model_server_urls = {
     'Xavier': {
-        'MobileNetV1': 'http://xavier_ip:8501/v1/models/mobilenet_v1:predict',
-        'MobileNetV2': 'http://xavier_ip:8501/v1/models/mobilenet_v2:predict',
-        'InceptionV3': 'http://xavier_ip:8501/v1/models/inception_v3:predict'
+        'MobileNetV1': 'http://xavier-ip:8501/v1/models/mobilenet_v1:predict',
+        'MobileNetV2': 'http://xavier-ip:8501/v1/models/mobilenet_v2:predict',
+        'InceptionV3': 'http://xavier-ip:8501/v1/models/inception_v3:predict'
     },
     'Nano': {
-        'MobileNetV1': 'http://nano_ip:8501/v1/models/mobilenet_v1:predict',
-        'MobileNetV2': 'http://nano_ip:8501/v1/models/mobilenet_v2:predict',
-        'InceptionV3': 'http://nano_ip:8501/v1/models/inception_v3:predict'
+        'MobileNetV1': 'http://nano-ip:8501/v1/models/mobilenet_v1:predict',
+        'MobileNetV2': 'http://nano-ip:8501/v1/models/mobilenet_v2:predict',
+        'InceptionV3': 'http://nano-ip:8501/v1/models/inception_v3:predict'
     }
 }
 
@@ -115,6 +115,9 @@ def round_robin(tasks, weights):
         # 성능 측정
         result = measure_performance(model_server_urls[device][model_name], image)
         results.append((device, model_name, result))
+        
+        # 1초 대기
+        time.sleep(1)
     
     return results
 
