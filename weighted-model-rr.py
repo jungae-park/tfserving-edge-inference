@@ -4,7 +4,7 @@ import requests
 import json
 import time
 import psutil
-from tensorflow.keras.preprocessing import image as keras_image
+import subprocess
 
 # 모델 서버 URL 설정 
 model_server_urls = {
@@ -20,11 +20,11 @@ model_server_urls = {
     }
 }
 
-# 각 모델에 대한 가중치 설정
-model_weights = {
-    'MobileNetV1': {'Xavier': 2, 'Nano': 1},  # Xavier에 더 높은 가중치 부여
-    'MobileNetV2': {'Xavier': 3, 'Nano': 1},
-    'InceptionV3': {'Xavier': 1, 'Nano': 2}
+# 요청 비율 설정
+request_distribution = {
+    'Scenario1': {'MobileNetV1': 50.0, 'MobileNetV2': 30.0, 'InceptionV3': 20.0},
+    'Scenario2': {'MobileNetV2': 60.0, 'InceptionV3': 40.0},
+    'Scenario3': {'MobileNetV1': 40.0, 'MobileNetV2': 30.0, 'InceptionV3': 30.0},
 }
 
 # 이미지 경로 설정
@@ -67,7 +67,8 @@ def measure_performance(model_server_url, image):
     # 리소스 사용량 측정
     cpu_usage = psutil.cpu_percent()
     memory_info = psutil.virtual_memory()
-    #gpu_usage = get_gpu_usage()
+    gpu_info = get_gpu_info()  # GPU 사용량 측정
+    battery_info = get_battery_info()  # 배터리 정보 측정
     
     # 성능 데이터 반환
     return {
@@ -75,44 +76,66 @@ def measure_performance(model_server_url, image):
         'predictions': predictions,
         'cpu_usage': cpu_usage,
         'memory_usage': memory_info.percent,
-    #    'gpu_usage': gpu_usage
+        'gpu_info': gpu_info,
+        'battery_info': battery_info
     }
 
-# GPU 사용량 측정 함수
-def get_gpu_usage():
+# GPU 사용량 측정 함수 (tegrastats 사용)
+def get_gpu_info():
     try:
-        # tegrastats 명령어 실행
-        result = os.popen("tegrastats | tail -n 1").read()
-        # 결과에서 GPU 사용량 추출
-        for line in result.split():
-            if 'GR3D' in line: 
-                gpu_usage = line.split('%')[0].strip()
-                return int(gpu_usage)
+        # tegrastats 명령어를 사용하여 GPU 사용량 정보 가져오기
+        process = subprocess.Popen(['tegrastats'], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        time.sleep(1)  # 1초 동안 대기하여 정보 수집
+        output, errors = process.communicate(timeout=1)  # 출력 가져오기
+        gpu_info = output.decode('utf-8').strip()
+        
+        # 필요한 정보만 필터링
+        filtered_info = [line for line in gpu_info.split('\n') if "GR2D" in line or "GR3D" in line]
+        return "\n".join(filtered_info)
     except Exception as e:
-        gpu_usage = None
-        print(f"Error retrieving GPU usage: {e}")
-    return gpu_usage
+        return f"Error retrieving GPU usage: {e}"
 
-# RR 알고리즘에 따른 작업 분배
-def round_robin(tasks, model_weights):
+# 배터리 정보 측정 함수
+def get_battery_info():
+    try:
+        current = None
+        voltage = None
+        
+        # 전류 정보 읽기
+        current_path = '/sys/class/power_supply/battery/current_now'
+        voltage_path = '/sys/class/power_supply/battery/voltage_now'
+        
+        if os.path.exists(current_path):
+            with open(current_path, 'r') as f:
+                current = int(f.read().strip()) / 1e6  # A로 변환
+
+        if os.path.exists(voltage_path):
+            with open(voltage_path, 'r') as f:
+                voltage = int(f.read().strip()) / 1e3  # V로 변환
+
+        return {
+            'current': current,
+            'voltage': voltage
+        }
+    except Exception as e:
+        return f"Error retrieving battery info: {e}"
+
+# 요청 비율에 따른 작업 수행 함수
+def request_distribution_based(device, tasks, request_distribution):
     results = []
     total_requests = 10
 
-    # 각 모델에 대한 가중치에 따라 요청 생성
-    for i in range(total_requests):
-        model_name = tasks[i % len(tasks)]
-        device = 'Xavier' if (i // sum(model_weights[model_name].values())) % 2 == 0 else 'Nano'
-        
-        # 해당 모델의 가중치에 따라 장비 선택
-        if model_weights[model_name][device] > 0:
-            # 이미지 로드
-            image_file = np.random.choice(image_files)  # 무작위로 이미지 선택
-            image_path = os.path.join(imagenet_path, image_file)
-            image = load_and_preprocess_image(image_path, model_name)
-            
-            # 성능 측정
-            result = measure_performance(model_server_urls[device][model_name], image)
-            results.append((device, model_name, result))
+    for scenario, distribution in request_distribution.items():
+        for model_name, percentage in distribution.items():
+            num_requests = int(total_requests * (percentage / 100))
+            for _ in range(num_requests):
+                image_file = np.random.choice(image_files)  # 무작위로 이미지 선택
+                image_path = os.path.join(imagenet_path, image_file)
+                image = load_and_preprocess_image(image_path, model_name)
+                
+                # 성능 측정
+                result = measure_performance(model_server_urls[device][model_name], image)
+                results.append((device, model_name, result))
     
     return results
 
@@ -122,13 +145,27 @@ tasks = ['MobileNetV1', 'MobileNetV2', 'InceptionV3']
 # ImageNet 데이터셋에서 이미지를 무작위로 선택
 image_files = os.listdir(imagenet_path)
 
-# RR 알고리즘을 사용하여 작업 수행
-results = round_robin(tasks, model_weights)
+# Xavier 장비에서 작업 수행
+xavier_results = request_distribution_based('Xavier', tasks, request_distribution)
+
+# Nano 장비에서 작업 수행
+nano_results = request_distribution_based('Nano', tasks, request_distribution)
 
 # 결과 출력
-for i, (device, model_name, result) in enumerate(results):
-    print(f"Task {i + 1}: {model_name} on {device}")
+for i, (device, model_name, result) in enumerate(xavier_results):
+    print(f"Xavier Task {i + 1}: {model_name} on {device}")
     print(f"  Inference Time: {result['inference_time']:.4f} seconds")
     print(f"  CPU Usage: {result['cpu_usage']}%")
     print(f"  Memory Usage: {result['memory_usage']}%")
-    #print(f"  GPU Usage: {result['gpu_usage']}%")
+    print(f"  GPU Info: {result['gpu_info']}")
+    print(f"  Battery Current: {result['battery_info']['current']} A")
+    print(f"  Battery Voltage: {result['battery_info']['voltage']} V")
+
+for i, (device, model_name, result) in enumerate(nano_results):
+    print(f"Nano Task {i + 1}: {model_name} on {device}")
+    print(f"  Inference Time: {result['inference_time']:.4f} seconds")
+    print(f"  CPU Usage: {result['cpu_usage']}%")
+    print(f"  Memory Usage: {result['memory_usage']}%")
+    print(f"  GPU Info: {result['gpu_info']}")
+    print(f"  Battery Current: {result['battery_info']['current']} A")
+    print(f"  Battery Voltage: {result['battery_info']['voltage']} V")
