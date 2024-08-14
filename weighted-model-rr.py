@@ -67,8 +67,7 @@ def measure_performance(model_server_url, image):
     # 리소스 사용량 측정
     cpu_usage = psutil.cpu_percent()
     memory_info = psutil.virtual_memory()
-    gpu_info = get_gpu_info()  # GPU 사용량 측정
-    battery_info = get_battery_info()  # 배터리 정보 측정
+    gpu_info = get_gpu_info()  # GPU 사용량 및 전력 정보 측정
     
     # 성능 데이터 반환
     return {
@@ -77,48 +76,45 @@ def measure_performance(model_server_url, image):
         'cpu_usage': cpu_usage,
         'memory_usage': memory_info.percent,
         'gpu_info': gpu_info,
-        'battery_info': battery_info
     }
 
-# GPU 사용량 측정 함수 (tegrastats 사용)
+# GPU 사용량 및 전력 정보 측정 함수 (tegrastats 사용)
 def get_gpu_info():
     try:
-        # tegrastats 명령어를 사용하여 GPU 사용량 정보 가져오기
+        # tegrastats를 백그라운드로 실행
         process = subprocess.Popen(['tegrastats'], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         time.sleep(1)  # 1초 동안 대기하여 정보 수집
         output, errors = process.communicate(timeout=1)  # 출력 가져오기
-        gpu_info = output.decode('utf-8').strip()
+        power_info = output.decode('utf-8').strip().split('\n')
         
-        # 필요한 정보만 필터링
-        filtered_info = [line for line in gpu_info.split('\n') if "GR2D" in line or "GR3D" in line]
-        return "\n".join(filtered_info)
+        # 필요한 정보 필터링
+        gpu_info = []
+        for line in power_info:
+            if 'GR3D' in line:  # GPU 정보
+                gpu_info.append(line)
+        
+        return "\n".join(gpu_info) if gpu_info else "GPU 정보가 없습니다."
     except Exception as e:
-        return f"Error retrieving GPU usage: {e}"
+        return f"GPU 정보를 가져오는 중 오류 발생: {e}"
 
-# 배터리 정보 측정 함수
+# 배터리 정보 측정 함수 (Jetson 보드는 일반적으로 배터리 정보를 제공하지 않음)
 def get_battery_info():
     try:
-        current = None
-        voltage = None
+        # tegrastats를 백그라운드로 실행
+        process = subprocess.Popen(['tegrastats'], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        time.sleep(1)  # 1초 동안 대기하여 정보 수집
+        output, errors = process.communicate(timeout=1)  # 출력 가져오기
+        power_info = output.decode('utf-8').strip().split('\n')
         
-        # 전류 정보 읽기
-        current_path = '/sys/class/power_supply/battery/current_now'
-        voltage_path = '/sys/class/power_supply/battery/voltage_now'
+        # 필요한 정보 필터링
+        battery_info = []
+        for line in power_info:
+            if 'POM_5V' in line:  # 배터리 정보
+                battery_info.append(line)
         
-        if os.path.exists(current_path):
-            with open(current_path, 'r') as f:
-                current = int(f.read().strip()) / 1e6  # A로 변환
-
-        if os.path.exists(voltage_path):
-            with open(voltage_path, 'r') as f:
-                voltage = int(f.read().strip()) / 1e3  # V로 변환
-
-        return {
-            'current': current,
-            'voltage': voltage
-        }
+        return "\n".join(battery_info) if battery_info else "배터리 정보가 없습니다."
     except Exception as e:
-        return f"Error retrieving battery info: {e}"
+        return f"배터리 정보를 가져오는 중 오류 발생: {e}"
 
 # 요청 비율에 따른 작업 수행 함수
 def request_distribution_based(device, tasks, request_distribution):
@@ -158,8 +154,7 @@ for i, (device, model_name, result) in enumerate(xavier_results):
     print(f"  CPU Usage: {result['cpu_usage']}%")
     print(f"  Memory Usage: {result['memory_usage']}%")
     print(f"  GPU Info: {result['gpu_info']}")
-    print(f"  Battery Current: {result['battery_info']['current']} A")
-    print(f"  Battery Voltage: {result['battery_info']['voltage']} V")
+    print(f"  Battery Info: {get_battery_info()}")  # 배터리 정보 추가 출력
 
 for i, (device, model_name, result) in enumerate(nano_results):
     print(f"Nano Task {i + 1}: {model_name} on {device}")
@@ -167,5 +162,4 @@ for i, (device, model_name, result) in enumerate(nano_results):
     print(f"  CPU Usage: {result['cpu_usage']}%")
     print(f"  Memory Usage: {result['memory_usage']}%")
     print(f"  GPU Info: {result['gpu_info']}")
-    print(f"  Battery Current: {result['battery_info']['current']} A")
-    print(f"  Battery Voltage: {result['battery_info']['voltage']} V")
+    print(f"  Battery Info: {get_battery_info()}")  # 배터리 정보 추가 출력
